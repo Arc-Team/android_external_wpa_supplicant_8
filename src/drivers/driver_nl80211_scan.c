@@ -10,6 +10,7 @@
  */
 
 #include "includes.h"
+#include <time.h>
 #include <netlink/genl/genl.h>
 
 #include "utils/common.h"
@@ -579,6 +580,7 @@ int bss_info_handler(struct nl_msg *msg, void *arg)
 		[NL80211_BSS_STATUS] = { .type = NLA_U32 },
 		[NL80211_BSS_SEEN_MS_AGO] = { .type = NLA_U32 },
 		[NL80211_BSS_BEACON_IES] = { .type = NLA_UNSPEC },
+		[NL80211_BSS_LAST_SEEN_BOOTTIME] = { .type = NLA_U64 },
 	};
 	struct nl80211_bss_info_arg *_arg = arg;
 	struct wpa_scan_results *res = _arg->res;
@@ -673,6 +675,23 @@ int bss_info_handler(struct nl_msg *msg, void *arg)
 	}
 	if (bss[NL80211_BSS_SEEN_MS_AGO])
 		r->age = nla_get_u32(bss[NL80211_BSS_SEEN_MS_AGO]);
+	if (bss[NL80211_BSS_LAST_SEEN_BOOTTIME]) {
+		u64 boottime;
+		struct timespec ts;
+
+#ifndef CLOCK_BOOTTIME
+#define CLOCK_BOOTTIME 7
+#endif
+		if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0) {
+			/* Use more accurate boottime information to update the
+			 * scan result age since the driver reports this and
+			 * CLOCK_BOOTTIME is available. */
+			boottime = nla_get_u64(
+				bss[NL80211_BSS_LAST_SEEN_BOOTTIME]);
+			r->age = ((u64) ts.tv_sec * 1000000000 +
+				  ts.tv_nsec - boottime) / 1000000;
+		}
+	}
 	r->ie_len = ie_len;
 	pos = (u8 *) (r + 1);
 	if (ie) {
